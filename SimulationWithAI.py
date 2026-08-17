@@ -6,7 +6,8 @@ import hashlib
 import random
 from dataclasses import dataclass, asdict
 from typing import List, Tuple, Dict, Optional
-
+import multiprocessing
+from functools import partial
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -71,6 +72,27 @@ random.seed(RANDOM_SEED)
 # =========================================================
 # Utility Functions
 # =========================================================
+
+def run_simulation_task(task_args):
+    """
+    اجرای مستقل یک ترکیب از کانفیگ‌ها برای پشتیبانی از Multiprocessing
+    """
+    repeat_id, object_count, duplication_ratio, methods_list = task_args
+    results = []
+    
+    # نمونه‌سازی از سیمولیتور برای دسترسی به متد _run_one
+    # توجه: این کار چون متدها وابستگی وضعیتی به هم ندارند، ایمن است.
+    sim_instance = SimulationV4()
+    
+    # تولید داده به صورت ایزوله برای هر تسک
+    workload = Workload(object_count, duplication_ratio, seed=RANDOM_SEED + repeat_id)
+    items = workload.generate()
+    
+    for method_name, method_key in methods_list:
+        row = sim_instance._run_one(method_name, method_key, items, repeat_id, object_count, duplication_ratio)
+        results.append(row)
+        
+    return results
 
 def sha256_int(x: int) -> int:
     return int(hashlib.sha256(str(x).encode("utf-8")).hexdigest(), 16)
@@ -458,16 +480,40 @@ class SimulationV4:
             ("Learned-Cuckoo", "learned_cuckoo"),
         ]
 
+    #def run(self) -> pd.DataFrame:
+          #for repeat_id in range(1, REPEATS + 1):
+            #for object_count in OBJECT_COUNTS:
+               # for duplication_ratio in DUP_RATIOS:
+                   # workload = Workload(object_count, duplication_ratio, seed=RANDOM_SEED + repeat_id)
+                    #items = workload.generate()
+                   # for method_name, method_key in self.methods:
+                      #  row = self._run_one(method_name, method_key, items, repeat_id, object_count, duplication_ratio)
+                       # self.results.append(row)
+        #return pd.DataFrame([asdict(r) for r in self.results])
+
     def run(self) -> pd.DataFrame:
+        tasks = []
         for repeat_id in range(1, REPEATS + 1):
             for object_count in OBJECT_COUNTS:
                 for duplication_ratio in DUP_RATIOS:
-                    workload = Workload(object_count, duplication_ratio, seed=RANDOM_SEED + repeat_id)
-                    items = workload.generate()
-                    for method_name, method_key in self.methods:
-                        row = self._run_one(method_name, method_key, items, repeat_id, object_count, duplication_ratio)
-                        self.results.append(row)
+                    # آماده‌سازی آرگومان‌ها برای هر تسک
+                    tasks.append((repeat_id, object_count, duplication_ratio, self.methods))
+        
+        # استفاده از تمام هسته‌های پردازنده (یا می‌توانی عدد 48 را دستی بدهی)
+        num_cores = multiprocessing.cpu_count()
+        print(f"[*] Starting simulation on {num_cores} CPU cores...")
+        
+        # اجرای موازی تسک‌ها
+        with multiprocessing.Pool(processes=num_cores) as pool:
+            # نتایج به صورت لیستی از لیست‌ها برمی‌گردد
+            results_nested = pool.map(run_simulation_task, tasks)
+            
+        # صاف کردن (Flatten) لیست نتایج
+        for result_batch in results_nested:
+            self.results.extend(result_batch)
+            
         return pd.DataFrame([asdict(r) for r in self.results])
+    
 
     def _run_one(self, method_name: str, method_key: str, items: List[WorkloadItem], repeat_id: int, object_count: int, duplication_ratio: float) -> ResultRow:
         query_count = int(max(1, round(len(items) * QUERY_MULTIPLIER)))
