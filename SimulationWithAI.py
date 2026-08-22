@@ -23,13 +23,9 @@ from sklearn.metrics import (
 )
 
 
-# =========================================================
-# Configuration
-# =========================================================
-
 RUN_MODE = os.environ.get("SIM_RUN_MODE", "paper")  # "quick" or "paper"
-RANDOM_SEED = int(os.environ.get("SIM_SEED", "42"))
-OUTPUT_DIR = os.environ.get("SIM_OUTDIR", "outputs_final")
+RANDOM_SEED = int(os.environ.get("SIM_SEED", "42")) #thhis is default SEED in ML
+OUTPUT_DIR = os.environ.get("SIM_OUTDIR", "outputs_final") # based on ur OS create Directory for Results
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 if RUN_MODE == "quick":
@@ -37,9 +33,9 @@ if RUN_MODE == "quick":
     DUP_RATIOS = [0.1, 0.3, 0.5]
     REPEATS = 2
 else:
-    OBJECT_COUNTS = [1_000_000, 20_000_000, 50_000_000]
+    OBJECT_COUNTS = [1_000_000, 20_000_000, 50_000_000] #change these values for test
     DUP_RATIOS = [0.1, 0.2, 0.3, 0.4, 0.5]
-    REPEATS = 3
+    REPEATS = 3 //Change Repeat
 
 QUERY_MULTIPLIER = 1.0
 TRAIN_RATIO = 0.70
@@ -49,7 +45,7 @@ LEARNED_THRESHOLD = 0.50
 BLOOM_BITS_PER_ITEM = 10
 BLOOM_NUM_HASHES = 7
 
-# Cuckoo parameters
+# Cuckoo Filter parameters
 CUCKOO_BUCKET_SIZE = 4
 CUCKOO_FINGERPRINT_BITS = 12
 CUCKOO_MAX_KICKS = 500
@@ -69,22 +65,13 @@ np.random.seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
 
-# =========================================================
-# Utility Functions
-# =========================================================
 
 def run_simulation_task(task_args):
-    """
-    اجرای مستقل یک ترکیب از کانفیگ‌ها برای پشتیبانی از Multiprocessing
-    """
+
     repeat_id, object_count, duplication_ratio, methods_list = task_args
     results = []
-    
-    # نمونه‌سازی از سیمولیتور برای دسترسی به متد _run_one
-    # توجه: این کار چون متدها وابستگی وضعیتی به هم ندارند، ایمن است.
+
     sim_instance = SimulationV4()
-    
-    # تولید داده به صورت ایزوله برای هر تسک
     workload = Workload(object_count, duplication_ratio, seed=RANDOM_SEED + repeat_id)
     items = workload.generate()
     
@@ -126,10 +113,6 @@ def format_million(n: int) -> str:
 def workload_signature(object_count: int, duplication_ratio: float) -> str:
     return f"N={object_count}|D={duplication_ratio:.3f}"
 
-
-# =========================================================
-# Workload Generation
-# =========================================================
 
 @dataclass
 class WorkloadItem:
@@ -189,10 +172,6 @@ class Workload:
             float(base[3]),
 )
 
-
-# =========================================================
-# Filters
-# =========================================================
 
 class BloomFilter:
     def __init__(self, capacity: int, bits_per_item: int = BLOOM_BITS_PER_ITEM, num_hashes: int = BLOOM_NUM_HASHES):
@@ -356,10 +335,6 @@ class LearnedBinaryFilter:
         return int(self.backup_filter.memory_bits)
 
 
-# =========================================================
-# Result structure
-# =========================================================
-
 @dataclass
 class ResultRow:
     method: str
@@ -422,10 +397,6 @@ class ResultRow:
     extra_note: str = ""
 
 
-# =========================================================
-# Metric Computation
-# =========================================================
-
 def compute_confusion(y_true: List[int], y_pred: List[int]) -> Tuple[int, int, int, int]:
     cm = confusion_matrix(y_true, y_pred, labels=[1, 0])
     tp = int(cm[0, 0])
@@ -465,9 +436,6 @@ def compute_metrics(y_true: List[int], y_pred: List[int], latency_ms: List[float
     }
 
 
-# =========================================================
-# Simulation Runner
-# =========================================================
 
 class SimulationV4:
     def __init__(self):
@@ -496,19 +464,15 @@ class SimulationV4:
         for repeat_id in range(1, REPEATS + 1):
             for object_count in OBJECT_COUNTS:
                 for duplication_ratio in DUP_RATIOS:
-                    # آماده‌سازی آرگومان‌ها برای هر تسک
+                   
                     tasks.append((repeat_id, object_count, duplication_ratio, self.methods))
         
-        # استفاده از تمام هسته‌های پردازنده (یا می‌توانی عدد 48 را دستی بدهی)
         num_cores = multiprocessing.cpu_count()
         print(f"[*] Starting simulation on {num_cores} CPU cores...")
         
-        # اجرای موازی تسک‌ها
         with multiprocessing.Pool(processes=num_cores) as pool:
-            # نتایج به صورت لیستی از لیست‌ها برمی‌گردد
-            results_nested = pool.map(run_simulation_task, tasks)
-            
-        # صاف کردن (Flatten) لیست نتایج
+            results_nested = pool.map(run_simulation_task, tasks)  
+        
         for result_batch in results_nested:
             self.results.extend(result_batch)
             
@@ -537,9 +501,6 @@ class SimulationV4:
         model_memory_kb = 0.0
         train_metrics = {"accuracy": np.nan, "precision": np.nan, "recall": np.nan, "f1": np.nan, "train_time_s": np.nan}
 
-        # ---------------------------------
-        # Baseline
-        # ---------------------------------
         if method_key == "baseline":
             seen = set()
             y_pred = []
@@ -559,9 +520,6 @@ class SimulationV4:
                 false_positive_ops += float(is_dup == 1 and it.is_duplicate == 0)
                 false_negative_ops += float(is_dup == 0 and it.is_duplicate == 1)
 
-        # ---------------------------------
-        # Bloom
-        # ---------------------------------
         elif method_key == "bloom":
             bf = BloomFilter(capacity=object_count)
             seen = set()
@@ -588,9 +546,7 @@ class SimulationV4:
                 false_negative_ops += float(pred == 0 and it.is_duplicate == 1)
             backup_memory_kb = bf.memory_bits / 8.0 / 1024.0
 
-        # ---------------------------------
-        # Cuckoo
-        # ---------------------------------
+
         elif method_key == "cuckoo":
             cf = CuckooFilter(capacity=object_count)
             for it in items:
@@ -616,9 +572,7 @@ class SimulationV4:
                 false_negative_ops += float(pred == 0 and it.is_duplicate == 1)
             backup_memory_kb = cf.memory_bits / 8.0 / 1024.0
 
-        # ---------------------------------
-        # Learned Bloom
-        # ---------------------------------
+
         elif method_key == "learned_bloom":
             X_keys = [it.key for it in items]
             y_labels = [it.is_duplicate for it in items]
@@ -650,9 +604,7 @@ class SimulationV4:
             cpu_ops += 10.0
             metadata_ops += 5.0
 
-        # ---------------------------------
-        # Learned Cuckoo
-        # ---------------------------------
+
         elif method_key == "learned_cuckoo":
             X_keys = [it.key for it in items]
             y_labels = [it.is_duplicate for it in items]
@@ -752,9 +704,6 @@ class SimulationV4:
         )
 
 
-# =========================================================
-# Aggregation and Export
-# =========================================================
 
 def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
     group_cols = ["method", "method_group", "object_count", "duplication_ratio"]
@@ -808,10 +757,6 @@ def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
     out = out.rename(columns={"repeat_id": "n_repeats"})
     return out
 
-
-# =========================================================
-# Plotting style inspired by Chart.pdf
-# =========================================================
 
 def apply_ieee_style():
     plt.rcParams.update({
@@ -928,10 +873,6 @@ def plot_train_test_metrics(df: pd.DataFrame):
         files.append(out_path)
     return files
 
-
-# =========================================================
-# Main
-# =========================================================
 
 def main():
     sim = SimulationV4()
